@@ -135,10 +135,9 @@ python check_in.py -m
 
 目前海外服务器和 GitHub Actions 均可通过浏览器登录链路运行。实际稳定性主要取决于服务器能否访问学校官网，以及当前学校登录页结构是否能被脚本识别。
 
-登录链路默认使用 `SWU_LOGIN_METHOD=auto`：
+登录链路默认使用 `SWU_LOGIN_METHOD=browser`，即直接通过 Playwright 浏览器登录当前学校统一认证页面。
 
-1. 先尝试历史纯 HTTP 登录。这条链路来自原始项目思路，不启动浏览器、不识别验证码，但原始项目已说明该登录接口不可用。
-2. 如果纯 HTTP 登录失败，再回退到 Playwright 浏览器登录。
+如果显式设置 `SWU_LOGIN_METHOD=auto`，脚本会先尝试历史纯 HTTP 登录；该链路来自原始项目思路，不启动浏览器、不识别验证码，但原始项目已说明该登录接口不可用，失败后会回退到浏览器登录。
 
 如果你要在 GitHub Actions 中运行或排查当前页面结构，建议使用：
 
@@ -228,6 +227,8 @@ crontab -e
 
 脚本内置运行锁，锁文件保存在配置目录的 `.run.lock`。如果上一次任务还没结束，下一次定时触发会自动跳过。默认超过 2 小时的锁会被视为过期锁并自动清理，可以通过 `SWU_LOCK_STALE_SECONDS` 调整。
 
+如果一轮批次中存在未完成账号，脚本会等待 5 分钟后仅重试未完成账号，并循环直到所有账号完成。默认间隔可通过 `SWU_RETRY_INTERVAL_SECONDS` 调整。
+
 ## 推送配置
 
 在 `.env` 或运行环境中设置对应变量即可启用推送：
@@ -251,9 +252,10 @@ crontab -e
 | `SWU_USERS` | 多账号 JSON 字符串 |
 | `SWU_MAX_WORKERS` | 最大并发线程数，默认 `3` |
 | `SWU_LOG_LEVEL` | 日志级别，默认 `INFO`，可选 `DEBUG` / `INFO` / `WARNING` / `ERROR` |
-| `SWU_LOGIN_METHOD` | 登录方式，默认 `auto`；可选 `direct` 纯 HTTP 登录、`browser` 浏览器登录 |
+| `SWU_LOGIN_METHOD` | 登录方式，默认 `browser`；可选 `auto` 先尝试历史纯 HTTP 登录后回退浏览器、`direct` 纯 HTTP 登录、`browser` 浏览器登录 |
 | `SWU_CONFIG_DIR` | 配置目录，默认脚本当前目录；Docker 镜像中默认 `/data` |
 | `SWU_LOCK_STALE_SECONDS` | 运行锁过期时间，默认 `7200` 秒 |
+| `SWU_RETRY_INTERVAL_SECONDS` | 失败账号重试间隔，默认 `300` 秒 |
 | `SWU_PROXY_URL` | 学校官网代理地址，海外 VPS 运行时可填写中国大陆代理出口 |
 | `SWU_PROXY_USERNAME` | 学校官网代理用户名，无认证可留空 |
 | `SWU_PROXY_PASSWORD` | 学校官网代理密码，无认证可留空 |

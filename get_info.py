@@ -659,10 +659,10 @@ def get_token(username: str, password: str, timeout=15, session=None, force_logi
     else:
         logger.info(f"账号 {username}: 收到强制登录参数，跳过缓存，正在获取新 Token...")
 
-    login_method = os.getenv("SWU_LOGIN_METHOD", "auto").strip().lower()
+    login_method = os.getenv("SWU_LOGIN_METHOD", "browser").strip().lower()
     if login_method not in {"auto", "direct", "browser"}:
-        logger.warning(f"账号 {username}: SWU_LOGIN_METHOD={login_method} 无效，将使用 auto。")
-        login_method = "auto"
+        logger.warning(f"账号 {username}: SWU_LOGIN_METHOD={login_method} 无效，将使用 browser。")
+        login_method = "browser"
 
     if login_method in {"auto", "direct"}:
         try:

@@ -368,9 +368,9 @@ def run_config_check(cli_username=None, cli_password=None):
     else:
         print(f"[OK] 学校官网代理：{proxy_description}")
 
-    login_method = os.getenv("SWU_LOGIN_METHOD", "auto").strip().lower() or "auto"
+    login_method = os.getenv("SWU_LOGIN_METHOD", "browser").strip().lower() or "browser"
     if login_method not in {"auto", "direct", "browser"}:
-        print(f"[WARN] 登录方式：SWU_LOGIN_METHOD={login_method} 无效，将按 auto 处理")
+        print(f"[WARN] 登录方式：SWU_LOGIN_METHOD={login_method} 无效，将按 browser 处理")
     else:
         method_hint = {
             "auto": "先尝试历史纯 HTTP 登录，失败后回退浏览器登录",
@@ -1011,56 +1011,86 @@ if __name__ == "__main__":
             logger.error(f"[{idx}/{total_accounts}] 账号 {username} 签到执行异常: {e}")
             return idx, username, -2, str(e)
 
-    success_count = 0
-    failed_count = 0
-    
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    
+
     max_workers_env = os.getenv("SWU_MAX_WORKERS", "").strip()
     max_workers = 3
     if max_workers_env.isdigit():
         max_workers = int(max_workers_env)
-        
+
+    retry_interval_env = os.getenv("SWU_RETRY_INTERVAL_SECONDS", "").strip()
+    retry_interval_seconds = 300
+    if retry_interval_env.isdigit():
+        retry_interval_seconds = max(1, int(retry_interval_env))
+
     logger.info(f"并发执行：最大线程数 = {max_workers}")
-    
-    results_summary = []
-    
-    futures = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for idx, acc in enumerate(accounts, 1):
-            future = executor.submit(run_account_checkin, idx, acc, len(accounts))
-            futures[future] = acc.get("username", "").strip()
-            
-        for future in as_completed(futures):
-            username = futures[future]
-            try:
-                idx, user, result, err = future.result()
-                if err is not None:
-                    status_msg = f"执行异常: {err}"
+    logger.info(f"失败账号重试：间隔 {retry_interval_seconds} 秒，直到所有账号完成打卡。")
+
+    final_results = {}
+    pending_accounts = list(accounts)
+    attempt = 1
+
+    def run_checkin_batch(batch_accounts, attempt_no):
+        batch_failed = []
+        total_batch = len(batch_accounts)
+        logger.info(f"开始第 {attempt_no} 轮打卡，本轮账号数：{total_batch}")
+        futures = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for idx, acc in enumerate(batch_accounts, 1):
+                future = executor.submit(run_account_checkin, idx, acc, total_batch)
+                futures[future] = acc
+
+            for future in as_completed(futures):
+                acc = futures[future]
+                username = acc.get("username", "").strip()
+                try:
+                    idx, user, result, err = future.result()
+                    if err is not None:
+                        status_msg = f"执行异常: {err}"
+                        is_ok = False
+                    else:
+                        status_msg = message_map.get(result, "未知状态")
+                        is_ok = (result in [0, 1, 2, 5])
+                except Exception as e:
+                    logger.error(f"线程执行异常 ({username}): {e}")
+                    user = username
+                    status_msg = f"线程执行异常: {e}"
                     is_ok = False
-                else:
-                    status_msg = message_map.get(result, '未知状态')
-                    is_ok = (result in [0, 1, 2, 5])
-                
-                results_summary.append((user, status_msg, is_ok))
-                if is_ok:
-                    success_count += 1
-                else:
-                    failed_count += 1
-            except Exception as e:
-                logger.error(f"线程执行异常 ({username}): {e}")
-                results_summary.append((username, f"线程执行异常: {e}", False))
-                failed_count += 1
-                
+
+                final_results[user] = (status_msg, is_ok, attempt_no)
+                if not is_ok:
+                    batch_failed.append(acc)
+
+        completed_count = len(accounts) - len(batch_failed)
+        logger.info(f"第 {attempt_no} 轮打卡完成：累计完成 {completed_count}/{len(accounts)}，本轮失败 {len(batch_failed)} 个。")
+        return batch_failed
+
+    while pending_accounts:
+        pending_accounts = run_checkin_batch(pending_accounts, attempt)
+        if pending_accounts:
+            failed_users = ", ".join(acc.get("username", "").strip() for acc in pending_accounts)
+            logger.warning(f"仍有 {len(pending_accounts)} 个账号未完成：{failed_users}")
+            logger.warning(f"将在 {retry_interval_seconds} 秒后仅重试未完成账号。")
+            time.sleep(retry_interval_seconds)
+            attempt += 1
+
+    success_count = sum(1 for _, is_ok, _ in final_results.values() if is_ok)
+    failed_count = len(accounts) - success_count
+
     summary_title = "西南大学自动签到任务通知"
-    summary_content = f"打卡执行完毕！成功: {success_count} 个，失败: {failed_count} 个。\n\n打卡详情:"
-    results_summary.sort(key=lambda x: x[0])
-    for user, status, is_ok in results_summary:
+    summary_content = f"打卡执行完毕！成功: {success_count} 个，失败: {failed_count} 个。"
+    if attempt > 1:
+        summary_content += f"\n总轮次: {attempt} 轮。"
+    summary_content += "\n\n打卡详情:"
+
+    for user in sorted(final_results):
+        status, is_ok, done_attempt = final_results[user]
         icon = "✅" if is_ok else "❌"
-        summary_content += f"\n{icon} 账号 {user}: {status}"
-        
+        retry_note = f"（第 {done_attempt} 轮完成）" if done_attempt > 1 else ""
+        summary_content += f"\n{icon} 账号 {user}: {status}{retry_note}"
+
     logger.info(f"\n{summary_content}")
-    
+
     try:
         from notify import send_push
         send_push(summary_title, summary_content)
