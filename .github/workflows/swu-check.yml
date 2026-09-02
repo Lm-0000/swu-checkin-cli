@@ -1,70 +1,70 @@
-name: SWU Check-in
+# name: SWU Check-in
 
-on:
-  schedule:
-    # 每天北京时间 21:05 自动运行。GitHub cron 使用 UTC 时间。
-    - cron: "5 13 * * *"
-  workflow_dispatch:
-    inputs:
-      login_method:
-        description: "登录方式：browser 使用当前登录页；auto 会先尝试历史 direct；direct 目前多半不可用，仅保留诊断。"
-        required: true
-        default: browser
-        type: choice
-        options:
-          - browser
-          - auto
-          - direct
+# on:
+#   schedule:
+#     # 每天北京时间 21:05 自动运行。GitHub cron 使用 UTC 时间。
+#     - cron: "5 13 * * *"
+#   workflow_dispatch:
+#     inputs:
+#       login_method:
+#         description: "登录方式：browser 使用当前登录页；auto 会先尝试历史 direct；direct 目前多半不可用，仅保留诊断。"
+#         required: true
+#         default: browser
+#         type: choice
+#         options:
+#           - browser
+#           - auto
+#           - direct
 
-concurrency:
-  group: swu-check-in
-  cancel-in-progress: false
+# concurrency:
+#   group: swu-check-in
+#   cancel-in-progress: false
 
-jobs:
-  check-in:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      TZ: Asia/Shanghai
-      SWU_USERNAME: ${{ secrets.SWU_USERNAME }}
-      SWU_PASSWORD: ${{ secrets.SWU_PASSWORD }}
-      SWU_LOGIN_METHOD: ${{ github.event_name == 'workflow_dispatch' && inputs.login_method || 'browser' }}
-      SWU_LOG_LEVEL: INFO
-      SWU_DEBUG_DIR: debug
+# jobs:
+#   check-in:
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 20
+#     env:
+#       TZ: Asia/Shanghai
+#       SWU_USERNAME: ${{ secrets.SWU_USERNAME }}
+#       SWU_PASSWORD: ${{ secrets.SWU_PASSWORD }}
+#       SWU_LOGIN_METHOD: ${{ github.event_name == 'workflow_dispatch' && inputs.login_method || 'browser' }}
+#       SWU_LOG_LEVEL: INFO
+#       SWU_DEBUG_DIR: debug
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
 
-      - name: Prepare debug directory
-        run: mkdir -p debug
+#       - name: Prepare debug directory
+#         run: mkdir -p debug
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+#       - name: Install dependencies
+#         run: pip install -r requirements.txt
 
-      - name: Install Chromium for browser login
-        if: ${{ env.SWU_LOGIN_METHOD != 'direct' }}
-        run: playwright install chromium
+#       - name: Install Chromium for browser login
+#         if: ${{ env.SWU_LOGIN_METHOD != 'direct' }}
+#         run: playwright install chromium
 
-      - name: Check configuration
-        run: python check_in.py --check-config
+#       - name: Check configuration
+#         run: python check_in.py --check-config
 
-      - name: Run check-in
-        run: python -u check_in.py --no-lock
+#       - name: Run check-in
+#         run: python -u check_in.py --no-lock
 
-      - name: List debug files
-        if: always()
-        run: find debug -maxdepth 2 -type f -print || true
+#       - name: List debug files
+#         if: always()
+#         run: find debug -maxdepth 2 -type f -print || true
 
-      - name: Upload login debug artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: login-debug
-          path: debug/
-          if-no-files-found: ignore
+#       - name: Upload login debug artifacts
+#         if: always()
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: login-debug
+#           path: debug/
+#           if-no-files-found: ignore
